@@ -39,9 +39,147 @@ cd "$PROJECT_DIR"
 echo -e "${CYAN}📍 Installation Directory: ${PROJECT_DIR}${NC}"
 echo ""
 
-# Step 1: Check Prerequisites
+# Detect OS
+detect_os() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$ID
+        VER=$VERSION_ID
+    elif type lsb_release >/dev/null 2>&1; then
+        OS=$(lsb_release -si | tr '[:upper:]' '[:lower:]')
+        VER=$(lsb_release -sr)
+    elif [ -f /etc/lsb-release ]; then
+        . /etc/lsb-release
+        OS=$(echo $DISTRIB_ID | tr '[:upper:]' '[:lower:]')
+        VER=$DISTRIB_RELEASE
+    else
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        VER=$(uname -r)
+    fi
+    echo "$OS"
+}
+
+# Install dependencies based on OS
+install_dependencies() {
+    local os=$(detect_os)
+    echo -e "  ${CYAN}Detected OS: $os${NC}"
+    echo ""
+
+    case "$os" in
+        ubuntu|debian|pop)
+            echo -e "  ${CYAN}Installing dependencies for Debian/Ubuntu...${NC}"
+            sudo apt-get update -qq
+
+            # Install Python 3
+            if ! command -v python3 &> /dev/null; then
+                echo -e "  ${CYAN}Installing Python 3...${NC}"
+                sudo apt-get install -y python3 python3-pip python3-venv >/dev/null 2>&1
+            fi
+
+            # Install Node.js and npm
+            if ! command -v node &> /dev/null; then
+                echo -e "  ${CYAN}Installing Node.js and npm...${NC}"
+                curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - >/dev/null 2>&1
+                sudo apt-get install -y nodejs >/dev/null 2>&1
+            fi
+
+            # Install MongoDB
+            if ! command -v mongod &> /dev/null; then
+                echo -e "  ${CYAN}Installing MongoDB...${NC}"
+                # Import MongoDB public GPG key
+                curl -fsSL https://pgp.mongodb.com/server-7.0.asc | \
+                    sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor >/dev/null 2>&1
+
+                # Create MongoDB list file
+                echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | \
+                    sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list >/dev/null
+
+                sudo apt-get update -qq
+                sudo apt-get install -y mongodb-org >/dev/null 2>&1
+
+                # Enable and start MongoDB
+                sudo systemctl enable mongod >/dev/null 2>&1
+                sudo systemctl start mongod >/dev/null 2>&1
+            fi
+            ;;
+
+        fedora|rhel|centos)
+            echo -e "  ${CYAN}Installing dependencies for RHEL/CentOS/Fedora...${NC}"
+
+            # Install Python 3
+            if ! command -v python3 &> /dev/null; then
+                echo -e "  ${CYAN}Installing Python 3...${NC}"
+                sudo dnf install -y python3 python3-pip >/dev/null 2>&1
+            fi
+
+            # Install Node.js and npm
+            if ! command -v node &> /dev/null; then
+                echo -e "  ${CYAN}Installing Node.js and npm...${NC}"
+                sudo dnf install -y nodejs npm >/dev/null 2>&1
+            fi
+
+            # Install MongoDB
+            if ! command -v mongod &> /dev/null; then
+                echo -e "  ${CYAN}Installing MongoDB...${NC}"
+                cat <<EOF | sudo tee /etc/yum.repos.d/mongodb-org-7.0.repo >/dev/null
+[mongodb-org-7.0]
+name=MongoDB Repository
+baseurl=https://repo.mongodb.org/yum/redhat/\$releasever/mongodb-org/7.0/x86_64/
+gpgcheck=1
+enabled=1
+gpgkey=https://pgp.mongodb.com/server-7.0.asc
+EOF
+                sudo dnf install -y mongodb-org >/dev/null 2>&1
+                sudo systemctl enable mongod >/dev/null 2>&1
+                sudo systemctl start mongod >/dev/null 2>&1
+            fi
+            ;;
+
+        darwin|macos)
+            echo -e "  ${CYAN}Installing dependencies for macOS...${NC}"
+
+            # Install Homebrew if not present
+            if ! command -v brew &> /dev/null; then
+                echo -e "  ${CYAN}Installing Homebrew...${NC}"
+                /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            fi
+
+            # Install Python 3
+            if ! command -v python3 &> /dev/null; then
+                echo -e "  ${CYAN}Installing Python 3...${NC}"
+                brew install python3 >/dev/null 2>&1
+            fi
+
+            # Install Node.js
+            if ! command -v node &> /dev/null; then
+                echo -e "  ${CYAN}Installing Node.js...${NC}"
+                brew install node >/dev/null 2>&1
+            fi
+
+            # Install MongoDB
+            if ! command -v mongod &> /dev/null; then
+                echo -e "  ${CYAN}Installing MongoDB...${NC}"
+                brew tap mongodb/brew >/dev/null 2>&1
+                brew install mongodb-community@7.0 >/dev/null 2>&1
+                brew services start mongodb-community@7.0 >/dev/null 2>&1
+            fi
+            ;;
+
+        *)
+            echo -e "  ${YELLOW}⚠${NC}  Unsupported OS: $os"
+            echo -e "  ${CYAN}Please install dependencies manually:${NC}"
+            echo -e "     - Python 3.11+"
+            echo -e "     - Node.js 16+"
+            echo -e "     - npm"
+            echo -e "     - MongoDB"
+            return 1
+            ;;
+    esac
+}
+
+# Step 1: Check and Install Prerequisites
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${CYAN}[1/7] Checking Prerequisites...${NC}"
+echo -e "${CYAN}[1/7] Checking and Installing Prerequisites...${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
 check_command() {
@@ -49,7 +187,7 @@ check_command() {
         echo -e "  ${GREEN}✓${NC} $1 is installed"
         return 0
     else
-        echo -e "  ${RED}✗${NC} $1 is NOT installed"
+        echo -e "  ${YELLOW}⚠${NC}  $1 is NOT installed"
         return 1
     fi
 }
@@ -63,12 +201,29 @@ check_command mongod || MISSING_DEPS=1
 
 if [ $MISSING_DEPS -eq 1 ]; then
     echo ""
-    echo -e "${RED}❌ Missing dependencies. Please install the following:${NC}"
-    echo -e "   - Python 3.11+"
-    echo -e "   - Node.js 16+"
-    echo -e "   - npm"
-    echo -e "   - MongoDB"
-    exit 1
+    echo -e "${CYAN}Installing missing dependencies...${NC}"
+    echo ""
+
+    install_dependencies
+
+    echo ""
+    echo -e "${CYAN}Verifying installation...${NC}"
+
+    # Re-check after installation
+    STILL_MISSING=0
+    check_command python3 || STILL_MISSING=1
+    check_command node || STILL_MISSING=1
+    check_command npm || STILL_MISSING=1
+    check_command mongod || STILL_MISSING=1
+
+    if [ $STILL_MISSING -eq 1 ]; then
+        echo ""
+        echo -e "${RED}❌ Some dependencies could not be installed automatically.${NC}"
+        echo -e "${CYAN}Please install them manually and try again.${NC}"
+        exit 1
+    fi
+
+    echo -e "  ${GREEN}✓${NC} All dependencies installed successfully!"
 fi
 
 echo ""
