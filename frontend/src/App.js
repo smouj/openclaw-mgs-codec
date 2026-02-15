@@ -45,6 +45,7 @@ function App() {
       clearInterval(timeInterval);
       if (ws.current) ws.current.close();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto scroll to bottom
