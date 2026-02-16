@@ -260,7 +260,7 @@ Esta aplicación integra **PicoClaw**, un asistente de IA ultraligero con capaci
 - [x] ✅ **Real agent capabilities** - Shell, files, web search, etc.
 - [x] ✅ **Audio beeps auténticos de MGS** - Completed!
 - [x] ✅ **Animaciones de incoming call (ring + vibration)** - Completed!
-- [ ] Cron jobs scheduler visual
+- [x] ✅ **Cron jobs scheduler visual** - Completed!
 - [ ] ClawHub de skills personalizadas
 - [ ] Integraciones de mensajería (WhatsApp, Telegram, Discord)
 - [ ] Binary rain particles mejoradas
