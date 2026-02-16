@@ -3,7 +3,7 @@
 ## One-Command Installation
 
 ```bash
-git clone https://github.com/smouj/pizarra-agentes.git
+git clone https://github.com/smouj/openclaw-mgs-codec.git
 cd pizarra-agentes
 chmod +x install.sh && ./install.sh
 ```
