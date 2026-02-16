@@ -26,15 +26,20 @@ function App() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [typingMessage, setTypingMessage] = useState(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [isIncomingCall, setIsIncomingCall] = useState(false);
+  const [showScheduler, setShowScheduler] = useState(false);
+  const [scheduledJobs, setScheduledJobs] = useState([]);
   const messagesEndRef = useRef(null);
   const ws = useRef(null);
+  const ringAudioRef = useRef(null);
 
   // Audio refs
   const audioRefs = useRef({
     beep: null,
     callStart: null,
     messageReceived: null,
-    alert: null
+    alert: null,
+    ring: null
   });
 
   // Initialize audio
@@ -58,6 +63,14 @@ function App() {
       audioRefs.current.callStart = await tryFormats('/sounds/call-start');
       audioRefs.current.messageReceived = await tryFormats('/sounds/message-received');
       audioRefs.current.alert = await tryFormats('/sounds/alert');
+
+      // Load ring sound with loop support
+      const ringSound = await tryFormats('/sounds/ring');
+      if (ringSound) {
+        ringSound.loop = true;
+        audioRefs.current.ring = ringSound;
+        ringAudioRef.current = ringSound;
+      }
     };
 
     loadSounds();
@@ -95,6 +108,28 @@ function App() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, typingMessage]);
+
+  // Cleanup incoming call on unmount or when call state changes
+  useEffect(() => {
+    return () => {
+      if (!isIncomingCall) {
+        // Stop ring sound
+        if (ringAudioRef.current) {
+          ringAudioRef.current.pause();
+          ringAudioRef.current.currentTime = 0;
+        }
+
+        // Stop vibration
+        if ('vibrate' in navigator) {
+          navigator.vibrate(0);
+          if (window.incomingCallVibration) {
+            clearInterval(window.incomingCallVibration);
+            window.incomingCallVibration = null;
+          }
+        }
+      }
+    };
+  }, [isIncomingCall]);
 
   const setupWebSocket = () => {
     const wsUrl = BACKEND_URL.replace('http', 'ws') + '/ws';
@@ -229,11 +264,13 @@ function App() {
       setConversation(response.data);
       setMessages(response.data.messages || []);
 
-      // Play sound if new messages arrived
+      // Trigger incoming call animation if new agent message arrived
       if (playSound && response.data.messages.length > oldLength) {
         const lastMsg = response.data.messages[response.data.messages.length - 1];
         if (lastMsg.role === 'agent') {
           playMessageReceived();
+          // Start incoming call animation
+          startIncomingCall();
         }
       }
     } catch (error) {
@@ -303,6 +340,59 @@ function App() {
   const playAlert = () => playSound('alert');
   const toggleSound = () => setSoundEnabled(!soundEnabled);
 
+  // Incoming call functions
+  const startIncomingCall = () => {
+    if (!soundEnabled) return;
+
+    setIsIncomingCall(true);
+
+    // Start ring sound (looping)
+    if (ringAudioRef.current) {
+      ringAudioRef.current.currentTime = 0;
+      ringAudioRef.current.volume = 0.6;
+      ringAudioRef.current.play().catch(e => console.log('Ring play failed:', e));
+    }
+
+    // Vibration pattern for mobile: [vibrate, pause, vibrate, pause, ...]
+    // Pattern: 200ms on, 100ms off, 200ms on, 100ms off, repeat
+    if ('vibrate' in navigator) {
+      const vibratePattern = [200, 100, 200, 100, 200, 500];
+
+      // Initial vibration
+      navigator.vibrate(vibratePattern);
+
+      // Continue vibrating every 1.5 seconds
+      const vibrateInterval = setInterval(() => {
+        navigator.vibrate(vibratePattern);
+      }, 1500);
+
+      // Store interval for cleanup
+      window.incomingCallVibration = vibrateInterval;
+    }
+  };
+
+  const answerCall = () => {
+    setIsIncomingCall(false);
+
+    // Stop ring sound
+    if (ringAudioRef.current) {
+      ringAudioRef.current.pause();
+      ringAudioRef.current.currentTime = 0;
+    }
+
+    // Stop vibration
+    if ('vibrate' in navigator) {
+      navigator.vibrate(0);
+      if (window.incomingCallVibration) {
+        clearInterval(window.incomingCallVibration);
+        window.incomingCallVibration = null;
+      }
+    }
+
+    // Play answer sound
+    playBeep();
+  };
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'connected': return 'bg-mgs-green';
@@ -329,6 +419,44 @@ function App() {
     const hours = d.getHours().toString().padStart(2, '0');
     const minutes = d.getMinutes().toString().padStart(2, '0');
     return `${day}${month}${year} ${hours}:${minutes}`;
+  };
+
+  // Scheduler functions
+  const loadScheduledJobs = async () => {
+    try {
+      const response = await axios.get(`${BACKEND_URL}/api/jobs`);
+      setScheduledJobs(response.data.jobs || []);
+    } catch (error) {
+      console.error('Failed to load scheduled jobs:', error);
+    }
+  };
+
+  const deleteScheduledJob = async (jobId) => {
+    try {
+      await axios.delete(`${BACKEND_URL}/api/jobs/${jobId}`);
+      playBeep();
+      loadScheduledJobs();
+    } catch (error) {
+      console.error('Failed to delete job:', error);
+      playAlert();
+    }
+  };
+
+  const toggleScheduledJob = async (jobId, enabled) => {
+    try {
+      await axios.put(`${BACKEND_URL}/api/jobs/${jobId}/toggle?enabled=${enabled}`);
+      playBeep();
+      loadScheduledJobs();
+    } catch (error) {
+      console.error('Failed to toggle job:', error);
+      playAlert();
+    }
+  };
+
+  const openScheduler = () => {
+    playBeep();
+    loadScheduledJobs();
+    setShowScheduler(true);
   };
 
   return (
@@ -363,7 +491,7 @@ function App() {
           <div className="codec-main">
             {/* Left Column - Portrait + HUD Metrics */}
             <div className="left-column">
-              <div className="portrait-container">
+              <div className={`portrait-container ${isIncomingCall ? 'incoming-call' : ''}`}>
                 <div className="portrait-frame">
                   {selectedAgent && (
                     <div className="agent-portrait">
@@ -377,6 +505,16 @@ function App() {
                     </div>
                   )}
                 </div>
+
+                {/* Incoming Call Overlay */}
+                {isIncomingCall && (
+                  <div className="incoming-call-overlay" onClick={answerCall}>
+                    <div className="incoming-call-text">
+                      <div className="call-label">◀ INCOMING CALL</div>
+                      <div className="call-action">CLICK TO ANSWER</div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* HUD Metrics */}
@@ -512,7 +650,7 @@ function App() {
 
             {/* Right Column - Portrait + Agent Sidebar */}
             <div className="right-column">
-              <div className="portrait-container">
+              <div className={`portrait-container ${isIncomingCall ? 'incoming-call' : ''}`}>
                 <div className="portrait-frame">
                   <div className="agent-portrait">
                     <div className="portrait-image">
@@ -524,6 +662,16 @@ function App() {
                     </div>
                   </div>
                 </div>
+
+                {/* Incoming Call Overlay */}
+                {isIncomingCall && (
+                  <div className="incoming-call-overlay" onClick={answerCall}>
+                    <div className="incoming-call-text">
+                      <div className="call-label">INCOMING CALL ▶</div>
+                      <div className="call-action">CLICK TO ANSWER</div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Agent Sidebar */}
@@ -588,6 +736,13 @@ function App() {
               title="Refresh connection and data"
             >
               <Icon name="refresh" className="icon-green icon-sm" /> REFRESH
+            </button>
+            <button
+              className="control-btn"
+              onClick={openScheduler}
+              title="Manage scheduled operations"
+            >
+              <Icon name="schedule" className="icon-green icon-sm" /> MISSIONS
             </button>
             <button
               className="control-btn"
@@ -743,6 +898,131 @@ function App() {
                     className="modal-btn cancel"
                   >
                     CANCEL
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Scheduler Modal */}
+          {showScheduler && (
+            <div className="modal-overlay" onClick={() => setShowScheduler(false)}>
+              <div className="modal-content scheduler-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header">
+                  <span>⏰ SCHEDULED OPERATIONS</span>
+                  <button onClick={() => setShowScheduler(false)} className="modal-close">
+                    <Icon name="close" className="icon-sm" />
+                  </button>
+                </div>
+                <div className="modal-body">
+                  <div className="scheduler-header">
+                    <p className="text-mgs-green font-bold mb-2">
+                      <Icon name="schedule" className="icon-green icon-sm" /> MISSION SCHEDULER
+                    </p>
+                    <p className="text-mgs-cyan text-xs mb-4">
+                      Automate agent tasks, shell commands, and webhooks with cron-like scheduling
+                    </p>
+                  </div>
+
+                  {/* Job List */}
+                  <div className="job-list">
+                    {scheduledJobs.length === 0 ? (
+                      <div className="no-jobs">
+                        <Icon name="event_available" className="icon-green" style={{fontSize: '3rem'}} />
+                        <p className="text-mgs-green mt-2">NO SCHEDULED OPERATIONS</p>
+                        <p className="text-mgs-cyan text-xs mt-1">Create a new mission to get started</p>
+                      </div>
+                    ) : (
+                      scheduledJobs.map((job) => (
+                        <div key={job._id} className={`job-item ${job.enabled ? 'enabled' : 'disabled'}`}>
+                          <div className="job-header">
+                            <div className="job-name">
+                              <Icon name={job.job_type === 'agent_task' ? 'smart_toy' : job.job_type === 'shell_command' ? 'terminal' : 'webhook'} className="icon-green icon-sm" />
+                              <span>{job.name}</span>
+                            </div>
+                            <div className="job-status">
+                              <span className={`status-badge ${job.status}`}>
+                                {job.status?.toUpperCase() || 'PENDING'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="job-details">
+                            <div className="job-info">
+                              <span className="text-mgs-cyan text-xs">TYPE:</span>
+                              <span className="text-mgs-green">{job.job_type?.replace('_', ' ').toUpperCase()}</span>
+                            </div>
+                            <div className="job-info">
+                              <span className="text-mgs-cyan text-xs">SCHEDULE:</span>
+                              <span className="text-mgs-green">{job.trigger_type?.toUpperCase()}</span>
+                            </div>
+                            {job.next_run && (
+                              <div className="job-info">
+                                <span className="text-mgs-cyan text-xs">NEXT RUN:</span>
+                                <span className="text-mgs-yellow">{new Date(job.next_run).toLocaleString()}</span>
+                              </div>
+                            )}
+                            {job.last_run && (
+                              <div className="job-info">
+                                <span className="text-mgs-cyan text-xs">LAST RUN:</span>
+                                <span className="text-mgs-green">{new Date(job.last_run).toLocaleString()}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="job-actions">
+                            <button
+                              className={`job-btn ${job.enabled ? 'pause' : 'play'}`}
+                              onClick={() => {
+                                playBeep();
+                                toggleScheduledJob(job._id, !job.enabled);
+                              }}
+                              title={job.enabled ? 'Pause' : 'Resume'}
+                            >
+                              <Icon name={job.enabled ? 'pause' : 'play_arrow'} className="icon-sm" />
+                              {job.enabled ? 'PAUSE' : 'RESUME'}
+                            </button>
+                            <button
+                              className="job-btn delete"
+                              onClick={() => {
+                                if (window.confirm(`Delete mission: ${job.name}?`)) {
+                                  deleteScheduledJob(job._id);
+                                }
+                              }}
+                              title="Delete"
+                            >
+                              <Icon name="delete" className="icon-sm" />
+                              DELETE
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Create Job Instructions */}
+                  <div className="scheduler-footer">
+                    <p className="text-mgs-cyan text-xs mt-4">
+                      <Icon name="info" className="icon-cyan icon-sm" /> Use the API or backend to create new scheduled jobs.
+                      Documentation: <span className="text-mgs-green">/api/jobs</span>
+                    </p>
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    onClick={() => {
+                      playBeep();
+                      loadScheduledJobs();
+                    }}
+                    className="modal-btn save"
+                  >
+                    <Icon name="refresh" className="icon-sm" /> REFRESH
+                  </button>
+                  <button
+                    onClick={() => setShowScheduler(false)}
+                    className="modal-btn cancel"
+                  >
+                    CLOSE
                   </button>
                 </div>
               </div>
