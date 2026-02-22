@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import axios from 'axios';
 import Icon from './Icon';
+import { locales } from './locales';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
 
@@ -11,6 +12,8 @@ function App() {
   const [conversation, setConversation] = useState(null);
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
+  const [language, setLanguage] = useState('en');
+  const t = (key) => locales[language][key] || key;
   const [metrics, setMetrics] = useState({
     tokens_per_minute: 0,
     cost_per_hour: 0,
@@ -144,11 +147,11 @@ function App() {
   const setupWebSocket = () => {
     const wsUrl = BACKEND_URL.replace('http', 'ws') + '/ws';
     ws.current = new WebSocket(wsUrl);
-    
+
     ws.current.onopen = () => {
       console.log('WebSocket connected');
     };
-    
+
     ws.current.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'new_message' && data.conversation_id === conversation?.id) {
@@ -158,7 +161,7 @@ function App() {
         loadAgents();
       }
     };
-    
+
     ws.current.onerror = (error) => {
       console.error('WebSocket error:', error);
     };
@@ -431,6 +434,55 @@ function App() {
     return `${day}${month}${year} ${hours}:${minutes}`;
   };
 
+  const renderMessageContent = (content) => {
+    if (!content) return null;
+
+    // Split tools
+    let blocks = content.split(/(\[Tools used:.*?\])/gs);
+
+    return blocks.map((block, i) => {
+      if (block.startsWith('[Tools used:')) {
+        return (
+          <div key={i} className="tool-execution-canvas">
+            <div className="tool-header">
+              <Icon name="build" className="icon-sm text-mgs-yellow" />
+              <span>SYSTEM COMPILED - TOOL EXECUTION</span>
+            </div>
+            <div className="tool-body">
+              {block.replace('[', '').replace(']', '')}
+            </div>
+          </div>
+        );
+      }
+
+      // Parse markdown images ![alt](url)
+      let imageBlocks = block.split(/(!\[.*?\]\(.*?\))/gs);
+      return imageBlocks.map((subBlock, j) => {
+        const imgMatch = subBlock.match(/!\[(.*?)\]\((.*?)\)/);
+        if (imgMatch) {
+          return (
+            <div key={`${i}-${j}`} className="canvas-image-container">
+              <img src={imgMatch[2]} alt={imgMatch[1]} className="canvas-image" />
+              <div className="canvas-label">INCOMING IMAGE DATALINK: {imgMatch[1].toUpperCase() || 'UNTITLED'}</div>
+            </div>
+          );
+        }
+
+        // Return standard text with br tags
+        return (
+          <span key={`${i}-${j}`}>
+            {subBlock.split('\n').map((line, k) => (
+              <React.Fragment key={k}>
+                {line}
+                {k !== subBlock.split('\n').length - 1 && <br />}
+              </React.Fragment>
+            ))}
+          </span>
+        );
+      });
+    });
+  };
+
   // Scheduler functions
   const loadScheduledJobs = async () => {
     try {
@@ -528,13 +580,13 @@ function App() {
           {/* Top Bar - Frequency Display */}
           <div className="top-bar">
             <div className="frequency-display">
-              <span className="frequency-label">FREQUENCY</span>
+              <span className="frequency-label">{t("frequency")}</span>
               <span className="frequency-value">{selectedAgent?.frequency || '187.89'} MHz</span>
             </div>
             <div className="codec-logo">CODEC</div>
             <div className="connection-status">
               <span className={`status-dot ${isConnected ? 'connected' : 'disconnected'}`}></span>
-              <span className="status-text">{isConnected ? 'ONLINE' : 'OFFLINE'}</span>
+              <span className="status-text">{isConnected ? t("online") : t("offline")}</span>
             </div>
           </div>
 
@@ -555,7 +607,7 @@ function App() {
                             e.target.nextSibling.style.display = 'flex';
                           }}
                         />
-                        <div className="avatar-placeholder" style={{display: 'none'}}>
+                        <div className="avatar-placeholder" style={{ display: 'none' }}>
                           {selectedAgent.name.charAt(0)}
                         </div>
                       </div>
@@ -571,8 +623,8 @@ function App() {
                 {isIncomingCall && (
                   <div className="incoming-call-overlay" onClick={answerCall}>
                     <div className="incoming-call-text">
-                      <div className="call-label">◀ INCOMING CALL</div>
-                      <div className="call-action">CLICK TO ANSWER</div>
+                      <div className="call-label">{t("incoming_call")}</div>
+                      <div className="call-action">{t("click_answer")}</div>
                     </div>
                   </div>
                 )}
@@ -581,22 +633,22 @@ function App() {
               {/* HUD Metrics */}
               <div className="hud-metrics">
                 <div className="metric-item">
-                  <span className="metric-label">LIFE</span>
+                  <span className="metric-label">{t("life")}</span>
                   <div className="metric-bar">
-                    <div className="bar-fill" style={{width: `${100 - metrics.tokens_per_minute / 2}%`}}></div>
+                    <div className="bar-fill" style={{ width: `${100 - metrics.tokens_per_minute / 2}%` }}></div>
                   </div>
                   <span className="metric-value">{Math.round(100 - metrics.tokens_per_minute / 2)}%</span>
                 </div>
                 <div className="metric-item">
-                  <span className="metric-label">RATIONS</span>
+                  <span className="metric-label">{t("rations")}</span>
                   <span className="metric-value digital">${metrics.cost_per_hour.toFixed(2)}/h</span>
                 </div>
                 <div className="metric-item">
-                  <span className="metric-label">AGENTS</span>
+                  <span className="metric-label">{t("agents")}</span>
                   <span className="metric-value digital">{metrics.active_agents}/{agents.length}</span>
                 </div>
                 <div className="metric-item">
-                  <span className="metric-label">MEMORY</span>
+                  <span className="metric-label">{t("memory")}</span>
                   <span className="metric-value digital">{metrics.memory_usage.toFixed(1)}%</span>
                 </div>
               </div>
@@ -617,7 +669,7 @@ function App() {
                   title="Previous agent"
                 >&lt;</button>
                 <div className="timer-display">
-                  <span className="timer-label">PTT</span>
+                  <span className="timer-label">{t("ptt")}</span>
                   <span className="timer-value">
                     {currentTime.toLocaleTimeString('en-US', { hour12: false })}
                   </span>
@@ -635,7 +687,7 @@ function App() {
                       }
                     }}
                     title="Save conversation to memory"
-                  >MEM</span>
+                  >{t("mem")}</span>
                   <span
                     className={`tune ${soundEnabled ? 'text-mgs-green' : 'text-mgs-red'}`}
                     onClick={() => {
@@ -643,7 +695,7 @@ function App() {
                       playBeep();
                     }}
                     title={`Sound: ${soundEnabled ? 'ON' : 'OFF'}`}
-                  >TUNE</span>
+                  >{t("tune")}</span>
                 </div>
                 <button
                   className="nav-btn"
@@ -661,8 +713,8 @@ function App() {
               <div className="messages-window">
                 {!conversation ? (
                   <div className="no-conversation">
-                    <p className="text-mgs-green">SELECT AN AGENT FROM THE FREQUENCY LIST</p>
-                    <p className="text-mgs-green mt-4">PRESS [CALL] TO INITIATE CODEC TRANSMISSION</p>
+                    <p className="text-mgs-green">{t("select_agent")}</p>
+                    <p className="text-mgs-green mt-4">{t("press_call")}</p>
                   </div>
                 ) : (
                   <div className="messages-list">
@@ -670,14 +722,14 @@ function App() {
                       <div key={msg.id || index} className={`message ${msg.role}`}>
                         <span className="message-timestamp">{formatTime(msg.timestamp)}</span>
                         <span className={`message-content ${getMessageColor(msg.role)}`}>
-                          {msg.content}
+                          {renderMessageContent(msg.content)}
                         </span>
                       </div>
                     ))}
                     {typingMessage && (
                       <div className="message agent">
-                        <span className="message-content text-mgs-green typing-indicator">
-                          {typingMessage}
+                        <span className="message-content text-mgs-green typing-indicator flex items-center gap-2">
+                          <Icon name="satellite_alt" className="icon-sm spin" /> {typingMessage}
                         </span>
                       </div>
                     )}
@@ -693,7 +745,7 @@ function App() {
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                  placeholder={hasToken ? "ENTER MESSAGE..." : "CONFIGURE TOKEN FIRST"}
+                  placeholder={hasToken ? t("enter_message") : t("config_first")}
                   disabled={!conversation || !hasToken}
                   className="message-input"
                   data-testid="message-input"
@@ -704,7 +756,7 @@ function App() {
                   className="send-btn"
                   data-testid="send-message-btn"
                 >
-                  SEND
+                  {t("send")}
                 </button>
               </div>
             </div>
@@ -723,13 +775,13 @@ function App() {
                           e.target.nextSibling.style.display = 'flex';
                         }}
                       />
-                      <div className="avatar-placeholder" style={{display: 'none'}}>
+                      <div className="avatar-placeholder" style={{ display: 'none' }}>
                         O
                       </div>
                     </div>
                     <div className="portrait-info">
-                      <div className="portrait-name">OPERATOR</div>
-                      <div className="portrait-type">GATEWAY</div>
+                      <div className="portrait-name">{t("operator")}</div>
+                      <div className="portrait-type">{t("gateway")}</div>
                     </div>
                   </div>
                 </div>
@@ -738,8 +790,8 @@ function App() {
                 {isIncomingCall && (
                   <div className="incoming-call-overlay" onClick={answerCall}>
                     <div className="incoming-call-text">
-                      <div className="call-label">INCOMING CALL ▶</div>
-                      <div className="call-action">CLICK TO ANSWER</div>
+                      <div className="call-label">{t("incoming_call").replace('◀ ', '')} ▶</div>
+                      <div className="call-action">{t("click_answer")}</div>
                     </div>
                   </div>
                 )}
@@ -747,35 +799,35 @@ function App() {
 
               {/* Agent Sidebar */}
               <div className="agent-sidebar">
-            <div className="sidebar-header">FREQUENCY SELECT</div>
-            <div className="agent-list">
-              {agents.map(agent => (
-                <div
-                  key={agent.id}
-                  className={`agent-item ${selectedAgent?.id === agent.id ? 'selected' : ''}`}
-                  onClick={() => setSelectedAgent(agent)}
-                  data-testid={`agent-${agent.type}`}
-                >
-                  <div className="agent-item-content">
-                    <div className={`status-indicator ${getStatusColor(agent.status)}`}></div>
-                    <div className="agent-item-info">
-                      <div className="agent-item-name">{agent.name}</div>
-                      <div className="agent-item-freq">{agent.frequency} MHz</div>
+                <div className="sidebar-header">{t("freq_select")}</div>
+                <div className="agent-list">
+                  {agents.map(agent => (
+                    <div
+                      key={agent.id}
+                      className={`agent-item ${selectedAgent?.id === agent.id ? 'selected' : ''}`}
+                      onClick={() => setSelectedAgent(agent)}
+                      data-testid={`agent-${agent.type}`}
+                    >
+                      <div className="agent-item-content">
+                        <div className={`status-indicator ${getStatusColor(agent.status)}`}></div>
+                        <div className="agent-item-info">
+                          <div className="agent-item-name">{agent.name}</div>
+                          <div className="agent-item-freq">{agent.frequency} MHz</div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startConversation(agent);
+                        }}
+                        className="call-btn"
+                        data-testid={`call-${agent.type}-btn`}
+                      >
+                        {t("call")}
+                      </button>
                     </div>
-                  </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      startConversation(agent);
-                    }}
-                    className="call-btn"
-                    data-testid={`call-${agent.type}-btn`}
-                  >
-                    CALL
-                  </button>
+                  ))}
                 </div>
-              ))}
-            </div>
               </div>
             </div>
           </div>
@@ -791,15 +843,9 @@ function App() {
               data-testid="token-config-btn"
               title="Configure API token"
             >
-              <Icon name="lock" className="icon-green icon-sm" /> TOKEN
+              <Icon name="lock" className="icon-green icon-sm" /> {t("token")}
             </button>
-            <button
-              className={`control-btn ${openclawConnected ? 'connected' : ''}`}
-              onClick={connectToOpenclaw}
-              title={openclawConnected ? 'Connected to OpenClaw' : 'Connect to OpenClaw'}
-            >
-              <Icon name="hub" className={`icon-sm ${openclawConnected ? 'icon-cyan' : 'icon-green'}`} /> OPENCLAW
-            </button>
+
             <button
               className="control-btn"
               onClick={() => {
@@ -813,14 +859,14 @@ function App() {
               }}
               title="Refresh connection and data"
             >
-              <Icon name="refresh" className="icon-green icon-sm" /> REFRESH
+              <Icon name="refresh" className="icon-green icon-sm" /> {t("refresh")}
             </button>
             <button
               className="control-btn"
               onClick={openScheduler}
               title="Manage scheduled operations"
             >
-              <Icon name="schedule" className="icon-green icon-sm" /> MISSIONS
+              <Icon name="schedule" className="icon-green icon-sm" /> {t("missions")}
             </button>
             <button
               className="control-btn"
@@ -839,7 +885,7 @@ function App() {
               data-testid="clear-session-btn"
               title="End codec call"
             >
-              EXIT
+              {t("exit")}
             </button>
             <button
               className="control-btn"
@@ -849,14 +895,24 @@ function App() {
               }}
               title={`Audio: ${soundEnabled ? 'ON' : 'OFF'}`}
             >
-              <Icon name={soundEnabled ? "volume_up" : "volume_off"} className={`icon-sm ${soundEnabled ? 'icon-green' : 'icon-red'}`} /> AUDIO
+              <Icon name={soundEnabled ? "volume_up" : "volume_off"} className={`icon-sm ${soundEnabled ? 'icon-green' : 'icon-red'}`} /> {t("audio")}
+            </button>
+            <button
+              className="control-btn"
+              onClick={() => {
+                playBeep();
+                setLanguage(language === 'en' ? 'es' : 'en');
+              }}
+              title="Change Language"
+            >
+              <Icon name="language" className="icon-green icon-sm" /> {t("language")} ({language.toUpperCase()})
             </button>
             <div className="control-info">
               <span className={isConnected ? 'text-mgs-green' : 'text-mgs-red'}>
                 {hasToken ? (
-                  <><Icon name="check_circle" className="icon-green icon-sm" /> TOKEN OK</>
+                  <><Icon name="check_circle" className="icon-green icon-sm" /> {t("token_ok")}</>
                 ) : (
-                  <><Icon name="warning" className="icon-yellow icon-sm" /> NO TOKEN</>
+                  <><Icon name="warning" className="icon-yellow icon-sm" /> {t("no_token")}</>
                 )}
               </span>
             </div>
@@ -867,13 +923,13 @@ function App() {
             <div className="modal-overlay" onClick={() => setShowTokenInput(false)}>
               <div className="modal-content" onClick={(e) => e.stopPropagation()}>
                 <div className="modal-header">
-                  <span>🔐 SECURE TOKEN MANAGER</span>
+                  <span>🔐 {t("secure_token_manager")}</span>
                   <button onClick={() => setShowTokenInput(false)} className="modal-close">
                     <Icon name="close" className="icon-sm" />
                   </button>
                 </div>
                 <div className="modal-body">
-                  <p className="text-mgs-green mb-4 font-bold">SELECT AI PROVIDER:</p>
+                  <p className="text-mgs-green mb-4 font-bold">{t("select_provider")}</p>
 
                   {/* Provider Selector */}
                   <div className="provider-selector mb-4">
@@ -900,6 +956,18 @@ function App() {
                         />
                         <span className="provider-name">OpenAI</span>
                         <span className="provider-desc">GPT-4o, GPT-4 Turbo, o1</span>
+                      </label>
+
+                      <label className={`provider-option ${selectedProvider === 'kilocode' ? 'selected' : ''}`}>
+                        <input
+                          type="radio"
+                          name="provider"
+                          value="kilocode"
+                          checked={selectedProvider === 'kilocode'}
+                          onChange={(e) => setSelectedProvider(e.target.value)}
+                        />
+                        <span className="provider-name">KiloCode</span>
+                        <span className="provider-desc">KiloCode Enterprise Models</span>
                       </label>
 
                       <label className={`provider-option ${selectedProvider === 'google' ? 'selected' : ''}`}>
@@ -931,7 +999,7 @@ function App() {
                           type="radio"
                           name="provider"
                           value="together"
-                          checked={selectedProvider === 'groq'}
+                          checked={selectedProvider === 'together'}
                           onChange={(e) => setSelectedProvider(e.target.value)}
                         />
                         <span className="provider-name">Together AI</span>
@@ -971,12 +1039,13 @@ function App() {
                     onChange={(e) => setOpenclawToken(e.target.value)}
                     placeholder={
                       selectedProvider === 'anthropic' ? 'sk-ant-api03-••••••••••••••••' :
-                      selectedProvider === 'openai' ? 'sk-••••••••••••••••' :
-                      selectedProvider === 'google' ? 'AIza••••••••••••••••' :
-                      selectedProvider === 'groq' ? 'gsk_••••••••••••••••' :
-                      selectedProvider === 'together' ? '••••••••••••••••' :
-                      selectedProvider === 'cohere' ? '••••••••••••••••' :
-                      'sk-or-••••••••••••••••'
+                        selectedProvider === 'openai' ? 'sk-••••••••••••••••' :
+                          selectedProvider === 'google' ? 'AIza••••••••••••••••' :
+                            selectedProvider === 'groq' ? 'gsk_••••••••••••••••' :
+                              selectedProvider === 'together' ? '••••••••••••••••' :
+                                selectedProvider === 'cohere' ? '••••••••••••••••' :
+                                  selectedProvider === 'kilocode' ? 'klc_••••••••••••••••' :
+                                    'sk-or-••••••••••••••••'
                     }
                     className="token-input"
                     data-testid="token-input"
@@ -1053,13 +1122,13 @@ function App() {
                     className="modal-btn save"
                     data-testid="save-token-btn"
                   >
-                    SAVE TOKEN
+                    {t("save_token")}
                   </button>
                   <button
                     onClick={() => setShowTokenInput(false)}
                     className="modal-btn cancel"
                   >
-                    CANCEL
+                    {t("cancel")}
                   </button>
                 </div>
               </div>
@@ -1071,7 +1140,7 @@ function App() {
             <div className="modal-overlay" onClick={() => setShowScheduler(false)}>
               <div className="modal-content scheduler-modal" onClick={(e) => e.stopPropagation()}>
                 <div className="modal-header">
-                  <span>⏰ SCHEDULED OPERATIONS</span>
+                  <span>⏰ {t("scheduled_operations")}</span>
                   <button onClick={() => setShowScheduler(false)} className="modal-close">
                     <Icon name="close" className="icon-sm" />
                   </button>
@@ -1079,7 +1148,7 @@ function App() {
                 <div className="modal-body">
                   <div className="scheduler-header">
                     <p className="text-mgs-green font-bold mb-2">
-                      <Icon name="schedule" className="icon-green icon-sm" /> MISSION SCHEDULER
+                      <Icon name="schedule" className="icon-green icon-sm" /> {t("mission_scheduler")}
                     </p>
                     <p className="text-mgs-cyan text-xs mb-4">
                       Automate agent tasks, shell commands, and webhooks with cron-like scheduling
@@ -1090,7 +1159,7 @@ function App() {
                   <div className="job-list">
                     {scheduledJobs.length === 0 ? (
                       <div className="no-jobs">
-                        <Icon name="event_available" className="icon-green" style={{fontSize: '3rem'}} />
+                        <Icon name="event_available" className="icon-green" style={{ fontSize: '3rem' }} />
                         <p className="text-mgs-green mt-2">NO SCHEDULED OPERATIONS</p>
                         <p className="text-mgs-cyan text-xs mt-1">Create a new mission to get started</p>
                       </div>
@@ -1111,22 +1180,22 @@ function App() {
 
                           <div className="job-details">
                             <div className="job-info">
-                              <span className="text-mgs-cyan text-xs">TYPE:</span>
+                              <span className="text-mgs-cyan text-xs">{t("type")}</span>
                               <span className="text-mgs-green">{job.job_type?.replace('_', ' ').toUpperCase()}</span>
                             </div>
                             <div className="job-info">
-                              <span className="text-mgs-cyan text-xs">SCHEDULE:</span>
+                              <span className="text-mgs-cyan text-xs">{t("schedule")}</span>
                               <span className="text-mgs-green">{job.trigger_type?.toUpperCase()}</span>
                             </div>
                             {job.next_run && (
                               <div className="job-info">
-                                <span className="text-mgs-cyan text-xs">NEXT RUN:</span>
+                                <span className="text-mgs-cyan text-xs">{t("next_run")}</span>
                                 <span className="text-mgs-yellow">{new Date(job.next_run).toLocaleString()}</span>
                               </div>
                             )}
                             {job.last_run && (
                               <div className="job-info">
-                                <span className="text-mgs-cyan text-xs">LAST RUN:</span>
+                                <span className="text-mgs-cyan text-xs">{t("last_run")}</span>
                                 <span className="text-mgs-green">{new Date(job.last_run).toLocaleString()}</span>
                               </div>
                             )}
@@ -1142,7 +1211,7 @@ function App() {
                               title={job.enabled ? 'Pause' : 'Resume'}
                             >
                               <Icon name={job.enabled ? 'pause' : 'play_arrow'} className="icon-sm" />
-                              {job.enabled ? 'PAUSE' : 'RESUME'}
+                              {job.enabled ? t("pause") : t("resume")}
                             </button>
                             <button
                               className="job-btn delete"
@@ -1154,7 +1223,7 @@ function App() {
                               title="Delete"
                             >
                               <Icon name="delete" className="icon-sm" />
-                              DELETE
+                              {t("delete")}
                             </button>
                           </div>
                         </div>
@@ -1178,13 +1247,13 @@ function App() {
                     }}
                     className="modal-btn save"
                   >
-                    <Icon name="refresh" className="icon-sm" /> REFRESH
+                    <Icon name="refresh" className="icon-sm" /> {t("refresh")}
                   </button>
                   <button
                     onClick={() => setShowScheduler(false)}
                     className="modal-btn cancel"
                   >
-                    CLOSE
+                    {t("close")}
                   </button>
                 </div>
               </div>

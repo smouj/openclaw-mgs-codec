@@ -363,7 +363,7 @@ async def send_message(conversation_id: str, role: str, content: str, agent_id: 
     
     return message
 
-async def call_openclaw_agent(token: str, agent_id: str, message: str, conversation_history: List[Dict] = None) -> Dict[str, Any]:
+async def call_openclaw_agent(token: str, agent_id: str, message: str, conversation_history: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """
     Call PicoClaw Agent with user's API key
     Supports Anthropic Claude, OpenAI, and OpenRouter
@@ -445,10 +445,10 @@ async def save_openclaw_token(token: str):
         # Check token format
         if ":" in token:
             provider, api_key = token.split(":", 1)
-            if provider not in ["anthropic", "openai", "openrouter"]:
+            if provider not in ["anthropic", "openai", "openrouter", "kilocode", "groq", "together", "cohere", "google"]:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid provider: {provider}. Must be one of: anthropic, openai, openrouter"
+                    detail=f"Invalid provider: {provider}. Must be one of: anthropic, openai, openrouter, kilocode, groq, together, cohere, google"
                 )
             if not api_key or not api_key.strip():
                 raise HTTPException(status_code=400, detail="API key cannot be empty")

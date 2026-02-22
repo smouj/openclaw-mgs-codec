@@ -53,12 +53,12 @@ class LLMProvider(ABC):
         **options
     ) -> LLMResponse:
         """Send chat request to LLM"""
-        pass
+        raise NotImplementedError()
 
     @abstractmethod
     def get_default_model(self) -> str:
         """Get the default model name"""
-        pass
+        raise NotImplementedError()
 
 
 class AnthropicProvider(LLMProvider):
@@ -101,12 +101,15 @@ class AnthropicProvider(LLMProvider):
                 })
             else:
                 content = msg.content
-                message_data = {"role": msg.role, "content": content}
+                if len(content) > 2000:
+                    # pyre-ignore[6, 16]
+                    content = "...\n" + content[-2000:]
+                message_data: Dict[str, Any] = {"role": msg.role, "content": content}
 
                 # Add tool calls if present
-                if msg.tool_calls:
-                    tool_uses = []
-                    for tc in msg.tool_calls:
+                if msg.tool_calls is not None:
+                    tool_uses: List[Dict[str, Any]] = []
+                    for tc in (msg.tool_calls or []):
                         tool_uses.append({
                             "type": "tool_use",
                             "id": tc.get("id"),
@@ -118,7 +121,7 @@ class AnthropicProvider(LLMProvider):
                 chat_messages.append(message_data)
 
         # Build request
-        payload = {
+        payload: Dict[str, Any] = {
             "model": model or self.default_model,
             "max_tokens": options.get("max_tokens", 4096),
             "messages": chat_messages,
@@ -127,10 +130,10 @@ class AnthropicProvider(LLMProvider):
         if system_content:
             payload["system"] = system_content
 
-        if tools:
+        if tools is not None:
             # Convert to Anthropic tool format
-            anthropic_tools = []
-            for tool in tools:
+            anthropic_tools: List[Dict[str, Any]] = []
+            for tool in (tools or []):
                 anthropic_tools.append({
                     "name": tool["function"]["name"],
                     "description": tool["function"]["description"],
@@ -179,9 +182,11 @@ class AnthropicProvider(LLMProvider):
             return LLMResponse(
                 content=content_text,
                 tool_calls=tool_calls if tool_calls else None,
-                finish_reason=data.get("stop_reason", "stop"),
+                finish_reason=data.get("choices", [{}])[0].get("finish_reason", "stop"),
                 usage=usage
             )
+
+        raise RuntimeError("Unreachable")
 
 
 class OpenAIProvider(LLMProvider):
@@ -205,14 +210,14 @@ class OpenAIProvider(LLMProvider):
         """Chat with OpenAI API"""
 
         # Convert messages to OpenAI format
-        openai_messages = []
+        openai_messages: List[Dict[str, Any]] = []
         for msg in messages:
-            message_data = {
+            message_data: Dict[str, Any] = {
                 "role": msg.role,
                 "content": msg.content
             }
 
-            if msg.tool_calls:
+            if msg.tool_calls is not None:
                 message_data["tool_calls"] = [
                     {
                         "id": tc.get("id"),
@@ -222,10 +227,10 @@ class OpenAIProvider(LLMProvider):
                             "arguments": json.dumps(tc.get("arguments", {}))
                         }
                     }
-                    for tc in msg.tool_calls
+                    for tc in (msg.tool_calls or [])
                 ]
 
-            if msg.tool_call_id:
+            if msg.tool_call_id is not None:
                 message_data["tool_call_id"] = msg.tool_call_id
 
             openai_messages.append(message_data)
@@ -237,7 +242,7 @@ class OpenAIProvider(LLMProvider):
             "max_tokens": options.get("max_tokens", 4096),
         }
 
-        if tools:
+        if tools is not None:
             payload["tools"] = tools
 
         # Make request
@@ -292,6 +297,46 @@ class OpenRouterProvider(OpenAIProvider):
     def __init__(self, api_key: str):
         super().__init__(api_key, base_url="https://openrouter.ai/api/v1")
         self.default_model = "anthropic/claude-3.5-sonnet"
+
+
+class KiloCodeProvider(OpenAIProvider):
+    """KiloCode API Provider (OpenAI-compatible)"""
+
+    def __init__(self, api_key: str):
+        super().__init__(api_key, base_url="https://api.kilocode.com/v1")
+        self.default_model = "kilocode-pro"
+
+
+class GroqProvider(OpenAIProvider):
+    """Groq API Provider (OpenAI-compatible)"""
+
+    def __init__(self, api_key: str):
+        super().__init__(api_key, base_url="https://api.groq.com/openai/v1")
+        self.default_model = "llama3-70b-8192"
+
+
+class TogetherProvider(OpenAIProvider):
+    """Together AI API Provider (OpenAI-compatible)"""
+
+    def __init__(self, api_key: str):
+        super().__init__(api_key, base_url="https://api.together.xyz/v1")
+        self.default_model = "meta-llama/Llama-3-70b-chat-hf"
+
+
+class CohereProvider(OpenAIProvider):
+    """Cohere API Provider (OpenAI-compatible)"""
+
+    def __init__(self, api_key: str):
+        super().__init__(api_key, base_url="https://api.cohere.com/v1") # Or compat
+        self.default_model = "command-r-plus"
+
+
+class GoogleProvider(OpenAIProvider):
+    """Google Gemini Provider (OpenAI-compatible endpoint if applicable, or generic fallback)"""
+    
+    def __init__(self, api_key: str):
+        super().__init__(api_key, base_url="https://generativelanguage.googleapis.com/v1beta/openai")
+        self.default_model = "gemini-1.5-pro"
 
 
 class LLMProviderRegistry:

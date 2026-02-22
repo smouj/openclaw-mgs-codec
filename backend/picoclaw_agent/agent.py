@@ -9,8 +9,15 @@ from datetime import datetime
 import platform
 import json
 
-from .providers import LLMProvider, Message, ToolCall
-from .tools import ToolRegistry
+import sys
+import os
+
+_parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _parent_dir not in sys.path:
+    sys.path.insert(0, _parent_dir)
+
+from picoclaw_agent.providers import LLMProvider, Message, ToolCall
+from picoclaw_agent.tools import ToolRegistry
 
 
 class ContextBuilder:
@@ -79,7 +86,7 @@ Your workspace is at: {workspace_path}
     def load_bootstrap_files(self) -> str:
         """Load bootstrap configuration files from workspace"""
         bootstrap_files = ["IDENTITY.md", "SOUL.md", "USER.md", "AGENTS.md"]
-        result = ""
+        parts: List[str] = []
 
         for filename in bootstrap_files:
             file_path = self.workspace / filename
@@ -87,11 +94,11 @@ Your workspace is at: {workspace_path}
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
-                        result += f"## {filename}\n\n{content}\n\n"
+                        parts.append(f"## {filename}\n\n{content}\n\n")
                 except Exception as e:
                     continue
 
-        return result
+        return "".join(parts)
 
     def get_memory_context(self) -> str:
         """Get recent memory context"""
@@ -105,10 +112,12 @@ Your workspace is at: {workspace_path}
                 content = f.read()
 
             # Return last 2000 characters to avoid context overflow
-            if len(content) > 2000:
-                content = "...\n" + content[-2000:]
+            content_str: str = str(content)
+            if len(content_str) > 2000:
+                # pyre-ignore
+                content_str = "...\n" + content_str[-2000:]
 
-            return f"## Recent Memory\n\n{content}"
+            return f"## Recent Memory\n\n{content_str}"
 
         except Exception:
             return ""
@@ -275,7 +284,7 @@ class PicoClawAgent:
 def create_default_agent(
     api_key: str,
     provider_type: str = "anthropic",
-    workspace: str = None,
+    workspace: Optional[str] = None,
     brave_api_key: Optional[str] = None,
     model: Optional[str] = None
 ) -> PicoClawAgent:
@@ -292,8 +301,11 @@ def create_default_agent(
     Returns:
         Configured PicoClawAgent instance
     """
-    from .providers import AnthropicProvider, OpenAIProvider, OpenRouterProvider
-    from .tools import (
+    from picoclaw_agent.providers import (
+        AnthropicProvider, OpenAIProvider, OpenRouterProvider,
+        KiloCodeProvider, GroqProvider, TogetherProvider, CohereProvider, GoogleProvider
+    )
+    from picoclaw_agent.tools import (
         ShellTool, FileSystemTool, WriteFileTool, ListFilesTool,
         WebSearchTool, MemoryTool
     )
@@ -309,6 +321,16 @@ def create_default_agent(
         provider = OpenAIProvider(api_key)
     elif provider_type == "openrouter":
         provider = OpenRouterProvider(api_key)
+    elif provider_type == "kilocode":
+        provider = KiloCodeProvider(api_key)
+    elif provider_type == "groq":
+        provider = GroqProvider(api_key)
+    elif provider_type == "together":
+        provider = TogetherProvider(api_key)
+    elif provider_type == "cohere":
+        provider = CohereProvider(api_key)
+    elif provider_type == "google":
+        provider = GoogleProvider(api_key)
     else:
         raise ValueError(f"Unknown provider type: {provider_type}")
 
